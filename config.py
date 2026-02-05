@@ -30,13 +30,15 @@ class CRMConfig:
     """CRM module configuration."""
     module_api_name: str
     checkbox_field_api_name: str
-    folder_name_field_api_name: str
+    record_name_field_api_name: str  # Field to match against WorkDrive folder names (typically "Name")
+    workdrive_url_field_api_name: str  # Field to store WorkDrive folder URL
+    workdrive_folder_id_field_api_name: str  # Field to store WorkDrive folder ID
 
 
 @dataclass
 class WorkDriveConfig:
-    """WorkDrive destination configuration."""
-    dest_folder_id: str
+    """WorkDrive configuration (kept for backward compatibility, not used in reversed flow)."""
+    dest_folder_id: str  # Not used in reversed flow, but kept for config validation
 
 
 @dataclass
@@ -79,18 +81,19 @@ class Config:
         # Validate CRM configuration
         crm_module = os.getenv("CRM_MODULE_API_NAME")
         crm_checkbox = os.getenv("CRM_CHECKBOX_FIELD_API_NAME")
-        crm_folder_name = os.getenv("CRM_FOLDER_NAME_FIELD_API_NAME")
+        crm_record_name = os.getenv("CRM_RECORD_NAME_FIELD_API_NAME", "Name")  # Default to "Name"
+        crm_workdrive_url = os.getenv("CRM_WORKDRIVE_URL_FIELD_API_NAME")
+        crm_workdrive_folder_id = os.getenv("CRM_WORKDRIVE_FOLDER_ID_FIELD_API_NAME")
         
-        if not all([crm_module, crm_checkbox, crm_folder_name]):
+        if not all([crm_module, crm_checkbox, crm_workdrive_url, crm_workdrive_folder_id]):
             raise ValueError(
                 "Missing required CRM configuration: "
-                "CRM_MODULE_API_NAME, CRM_CHECKBOX_FIELD_API_NAME, CRM_FOLDER_NAME_FIELD_API_NAME"
+                "CRM_MODULE_API_NAME, CRM_CHECKBOX_FIELD_API_NAME, "
+                "CRM_WORKDRIVE_URL_FIELD_API_NAME, CRM_WORKDRIVE_FOLDER_ID_FIELD_API_NAME"
             )
         
-        # Validate WorkDrive destination
-        workdrive_dest = os.getenv("WORKDRIVE_DEST_FOLDER_ID")
-        if not workdrive_dest:
-            raise ValueError("Missing required WorkDrive configuration: WORKDRIVE_DEST_FOLDER_ID")
+        # WorkDrive destination (not used in reversed flow, but kept for backward compatibility)
+        workdrive_dest = os.getenv("WORKDRIVE_DEST_FOLDER_ID", "")
         
         return cls(
             region=region,
@@ -108,7 +111,9 @@ class Config:
             crm=CRMConfig(
                 module_api_name=crm_module,
                 checkbox_field_api_name=crm_checkbox,
-                folder_name_field_api_name=crm_folder_name,
+                record_name_field_api_name=crm_record_name,
+                workdrive_url_field_api_name=crm_workdrive_url,
+                workdrive_folder_id_field_api_name=crm_workdrive_folder_id,
             ),
             workdrive=WorkDriveConfig(
                 dest_folder_id=workdrive_dest,

@@ -182,3 +182,110 @@ class OrgBWorkDriveClient:
             raise
         
         return items
+    
+    @retry_with_backoff()
+    def get_folder_url(self, folder_id: str) -> str:
+        """
+        Get shareable/view URL for a WorkDrive folder.
+        
+        Args:
+            folder_id: ID of folder to get URL for
+            
+        Returns:
+            Shareable URL for the folder
+            
+        Raises:
+            requests.RequestException: On API errors
+        """
+        # Get folder metadata which should include URL
+        url = f"{self.workdrive_base}/folders/{folder_id}"
+        headers = self.auth_client.get_headers()
+        
+        response = requests.get(url, headers=headers, timeout=30)
+        
+        if response.status_code == 401:
+            headers = self.auth_client.get_headers(force_refresh=True)
+            response = requests.get(url, headers=headers, timeout=30)
+        
+        response.raise_for_status()
+        data = response.json()
+        folder = data.get("data", {})
+        
+        # Try various URL fields that might exist
+        folder_url = (
+            folder.get("url") or
+            folder.get("shareUrl") or
+            folder.get("viewUrl") or
+            folder.get("webUrl") or
+            folder.get("link")
+        )
+        
+        # If no URL in metadata, construct a standard WorkDrive URL
+        if not folder_url:
+            # Construct URL based on region
+            region = self.auth_client.region
+            base_domain = {
+                "com": "workdrive.zoho.com",
+                "eu": "workdrive.zoho.eu",
+                "in": "workdrive.zoho.in",
+                "au": "workdrive.zoho.com.au",
+                "jp": "workdrive.zoho.jp",
+            }.get(region, "workdrive.zoho.com")
+            
+            folder_url = f"https://{base_domain}/folder/{folder_id}"
+        
+        return folder_url
+    
+    @retry_with_backoff()
+    def upload_file(
+        self,
+        folder_id: str,
+        file_name: str,
+        file_content: bytes,
+        content_type: Optional[str] = None,
+    ) -> Dict:
+        """
+        Upload a file to a folder in Org B WorkDrive (streaming).
+        
+        Args:
+            folder_id: ID of destination folder
+            file_name: Name of file to upload
+            file_content: File content as bytes
+            content_type: MIME type (optional, will be inferred)
+            
+        Returns:
+            Dictionary with uploaded file metadata
+            
+        Raises:
+            requests.RequestException: On API errors
+        """
+        # Use multipart/form-data for file upload
+        url = f"{self.workdrive_base}/files/upload"
+        
+        # Get upload headers
+        headers = self.auth_client.get_headers()
+        # Remove Content-Type from headers for multipart
+        upload_headers = {k: v for k, v in headers.items() if k.lower() != "content-type"}
+        
+        files = {
+            "file": (file_name, file_content, content_type or "application/octet-stream")
+        }
+        data = {
+            "parentId": folder_id,
+        }
+        
+        response = requests.post(
+            url, headers=upload_headers, files=files, data=data, timeout=300
+        )
+        
+        if response.status_code == 401:
+            upload_headers = {k: v for k, v in self.auth_client.get_headers(force_refresh=True).items() 
+                            if k.lower() != "content-type"}
+            response = requests.post(
+                url, headers=upload_headers, files=files, data=data, timeout=300
+            )
+        
+        response.raise_for_status()
+        result = response.json()
+        
+        return result.get("data", {})

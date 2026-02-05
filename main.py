@@ -7,7 +7,6 @@ from config import Config
 from auth.zoho_auth import create_org_a_auth, create_org_b_auth
 from crm.crm_client import CRMClient
 from workdrive.org_b_client import OrgBWorkDriveClient
-from workdrive.org_a_client import OrgAWorkDriveClient
 from services.transfer_service import TransferService
 from utils.logger import MigrationLogger
 
@@ -15,7 +14,7 @@ from utils.logger import MigrationLogger
 def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
-        description="Zoho WorkDrive Migration Service - Transfer files from Org B to Org A"
+        description="Zoho WorkDrive Migration Service - Upload CRM attachments to Org B WorkDrive"
     )
     parser.add_argument(
         "--dry-run",
@@ -57,26 +56,11 @@ def main():
         # Initialize clients
         crm_client = CRMClient(org_a_auth, config.crm)
         org_b_client = OrgBWorkDriveClient(org_b_auth, config.org_b.team_folder_id)
-        org_a_client = OrgAWorkDriveClient(org_a_auth)
-        
-        # Validate destination folder exists
-        if not args.dry_run:
-            if not org_a_client.validate_folder_exists(config.workdrive.dest_folder_id):
-                logger.log_error(
-                    f"Destination folder {config.workdrive.dest_folder_id} does not exist or is not accessible"
-                )
-                return 1
-        else:
-            logger.log_info(
-                f"DRY-RUN: Skipping validation of destination folder {config.workdrive.dest_folder_id}"
-            )
         
         # Initialize transfer service
         transfer_service = TransferService(
             crm_client=crm_client,
             org_b_client=org_b_client,
-            org_a_client=org_a_client,
-            dest_folder_id=config.workdrive.dest_folder_id,
             logger=logger,
             dry_run=args.dry_run,
         )
@@ -88,12 +72,12 @@ def main():
                 logger.log_error(f"Record {args.record_id} not found")
                 return 1
             
-            folder_name_field = config.crm.folder_name_field_api_name
-            folder_name = record.get(folder_name_field, "").strip()
+            record_name_field = config.crm.record_name_field_api_name
+            record_name = record.get(record_name_field, "").strip()
             
-            if not folder_name:
+            if not record_name:
                 logger.log_error(
-                    f"Record {args.record_id} has empty folder name field"
+                    f"Record {args.record_id} has empty Record Name field"
                 )
                 return 1
             
@@ -120,14 +104,14 @@ def main():
         
         successful = sum(1 for r in results if r.success)
         failed = len(results) - successful
-        total_files_transferred = sum(r.files_transferred for r in results)
-        total_files_failed = sum(r.files_failed for r in results)
+        total_attachments_uploaded = sum(r.attachments_uploaded for r in results)
+        total_attachments_failed = sum(r.attachments_failed for r in results)
         
         logger.log_info(f"Records processed: {len(results)}")
         logger.log_info(f"Records successful: {successful}")
         logger.log_info(f"Records failed: {failed}")
-        logger.log_info(f"Total files transferred: {total_files_transferred}")
-        logger.log_info(f"Total files failed: {total_files_failed}")
+        logger.log_info(f"Total attachments uploaded: {total_attachments_uploaded}")
+        logger.log_info(f"Total attachments failed: {total_attachments_failed}")
         logger.log_info("=" * 60)
         
         # Return exit code based on results

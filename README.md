@@ -1,14 +1,15 @@
 # Zoho WorkDrive Migration Service
 
-A Python automation service that transfers files from Zoho WorkDrive (Organization B) to Zoho WorkDrive (Organization A) based on CRM records, and updates CRM checkboxes to track transfer completion.
+A Python automation service that uploads attachments from Zoho CRM (Organization A) to Zoho WorkDrive (Organization B) based on matching Record Names, stores WorkDrive URLs in CRM records, and updates checkboxes to track completion.
 
 ## Features
 
-- **Cross-Organization Transfer**: Transfers files from WorkDrive Org B to WorkDrive Org A
-- **CRM Integration**: Reads pending records from Zoho CRM and updates transfer status
-- **Recursive Transfer**: Recursively copies files and subfolders, mirroring folder structure
+- **Reverse Transfer Flow**: Uploads CRM attachments to Org B WorkDrive (old system)
+- **CRM Integration**: Reads pending records from Zoho CRM, stores WorkDrive URLs, and updates transfer status
+- **Attachment Upload**: Fetches attachments from CRM Attachments Related List and uploads to WorkDrive
+- **Folder Matching**: Matches CRM Record Names to WorkDrive folders in Org B
 - **Duplicate Handling**: Automatically renames duplicate filenames with timestamps
-- **Error Isolation**: Per-file error handling ensures one failure doesn't stop the entire transfer
+- **Error Isolation**: Per-attachment error handling ensures one failure doesn't stop the entire transfer
 - **Retry Logic**: Automatic retry with exponential backoff for transient errors
 - **Dry-Run Mode**: Test the service without making actual changes
 - **Comprehensive Logging**: Detailed logs for all operations
@@ -45,12 +46,12 @@ Create a `.env` file with the following variables:
 # Zoho Region (com, eu, in, au, jp)
 ZOHO_REGION=com
 
-# Organization A (CRM + WorkDrive Destination)
+# Organization A (CRM - Source of attachments)
 ORG_A_CLIENT_ID=your_org_a_client_id
 ORG_A_CLIENT_SECRET=your_org_a_client_secret
 ORG_A_REFRESH_TOKEN=your_org_a_refresh_token
 
-# Organization B (WorkDrive Source)
+# Organization B (WorkDrive - Destination for attachments)
 ORG_B_CLIENT_ID=your_org_b_client_id
 ORG_B_CLIENT_SECRET=your_org_b_client_secret
 ORG_B_REFRESH_TOKEN=your_org_b_refresh_token
@@ -59,10 +60,9 @@ ORG_B_TEAM_FOLDER_ID=your_org_b_team_folder_root_id
 # CRM Configuration
 CRM_MODULE_API_NAME=Contacts
 CRM_CHECKBOX_FIELD_API_NAME=Transfer_Complete
-CRM_FOLDER_NAME_FIELD_API_NAME=Source_Folder_Name
-
-# WorkDrive Destination
-WORKDRIVE_DEST_FOLDER_ID=your_destination_folder_id
+CRM_RECORD_NAME_FIELD_API_NAME=Name
+CRM_WORKDRIVE_URL_FIELD_API_NAME=WorkDrive_URL
+CRM_WORKDRIVE_FOLDER_ID_FIELD_API_NAME=WorkDrive_Folder_ID
 ```
 
 ### OAuth Setup
@@ -71,13 +71,12 @@ You need to create OAuth Self Clients in both Zoho organizations:
 
 **Org A Scopes:**
 - `ZohoCRM.modules.ALL`
+- `ZohoCRM.files.READ` (for accessing attachments)
+
+**Org B Scopes:**
 - `WorkDrive.files.CREATE`
 - `WorkDrive.files.READ`
 - `WorkDrive.files.UPDATE`
-- `WorkDrive.teamfolders.READ`
-
-**Org B Scopes:**
-- `WorkDrive.files.READ`
 - `WorkDrive.teamfolders.READ`
 
 Generate refresh tokens for both clients and add them to your `.env` file.
@@ -126,17 +125,19 @@ To run automatically on a schedule:
 
 ## How It Works
 
-1. **Fetch CRM Records**: Retrieves records where the checkbox is `False` and folder name is not empty
-2. **Resolve Source Folder**: Searches for matching folder in Org B WorkDrive (scoped to configured Team Folder)
-3. **Transfer Files**: Recursively walks the folder structure and transfers all files to Org A, mirroring the folder structure
-4. **Update CRM**: Sets checkbox to `True` if at least one file was successfully transferred
-5. **Log Results**: Logs all operations to console and log files
+1. **Fetch CRM Records**: Retrieves records where the checkbox is `False` and Record Name is not empty
+2. **Resolve WorkDrive Folder**: Searches for matching folder in Org B WorkDrive by Record Name (scoped to configured Team Folder)
+3. **Store WorkDrive Info**: Stores WorkDrive folder URL and folder ID in CRM record fields
+4. **Fetch Attachments**: Retrieves all attachments from the CRM record's Attachments Related List
+5. **Upload Attachments**: Uploads each attachment to the matched WorkDrive folder in Org B
+6. **Update CRM**: Sets checkbox to `True` if at least one attachment was successfully uploaded
+7. **Log Results**: Logs all operations to console and log files
 
 ## Folder Matching Rules
 
-- Case-insensitive exact match
+- Matches CRM Record Name to WorkDrive folder names (case-insensitive exact match)
 - If multiple matches exist, uses the most recently modified folder
-- If folder not found, logs error and skips record
+- If folder not found in Org B WorkDrive, logs error and skips record (does not create folder)
 
 ## Duplicate Filename Policy
 
@@ -163,7 +164,7 @@ Log entries include:
 - **HTTP 429 (Rate Limit)**: Automatic retry with exponential backoff
 - **HTTP 5xx (Server Errors)**: Automatic retry (up to 3 attempts)
 - **401 (Unauthorized)**: Token refresh and retry
-- **Per-File Errors**: Isolated - one file failure doesn't stop the transfer
+- **Per-Attachment Errors**: Isolated - one attachment failure doesn't stop the transfer
 
 ## Exit Codes
 
@@ -181,8 +182,8 @@ project_root/
 ├── crm/
 │   └── crm_client.py      # CRM API client
 ├── workdrive/
-│   ├── org_a_client.py    # WorkDrive Org A client
-│   └── org_b_client.py    # WorkDrive Org B client
+│   ├── org_a_client.py    # WorkDrive Org A client (kept for compatibility, not used in reversed flow)
+│   └── org_b_client.py    # WorkDrive Org B client (destination for attachments)
 ├── services/
 │   └── transfer_service.py # Transfer orchestration
 ├── utils/
@@ -228,13 +229,15 @@ pytest -v
 - Ensure scopes are properly configured
 
 ### "Folder not found" warnings
-- Verify folder names in CRM match exactly (case-insensitive)
+- Verify Record Names in CRM match WorkDrive folder names exactly (case-insensitive)
 - Check that `ORG_B_TEAM_FOLDER_ID` is correct
-- Ensure the folder exists in the specified Team Folder
+- Ensure the folder exists in the specified Team Folder in Org B WorkDrive
+- The service will skip records if folders are not found (does not create folders)
 
-### "Destination folder does not exist" error
-- Verify `WORKDRIVE_DEST_FOLDER_ID` is correct
-- Ensure you have access to the destination folder in Org A
+### "Failed to fetch attachments" errors
+- Verify the CRM record has attachments in the Attachments Related List
+- Check that Org A OAuth scopes include `ZohoCRM.files.READ`
+- Ensure you have access to view attachments for the CRM records
 
 ## Security Notes
 
