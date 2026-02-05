@@ -1,0 +1,40 @@
+# Documentation: Timeline & changelog for big updates
+
+When you or the user complete a **big update** or **note worthy** update, log it in `./documentation/` as markdown.
+
+## What counts as a big update
+
+- New feature or major behavior change
+- Refactor touching multiple files
+- API or integration changes
+- UI/UX overhaul or new screens
+- Bug fix or change that affects behavior in a notable way
+
+When in doubt, log it—short entries are fine.
+
+## Where to log
+
+- **Changelog (timeline):** `documentation/CHANGELOG.md` — append new entries at the top.
+- **Optional:** One-off docs (e.g. `documentation/2025-02-02-quote-api-update.md`) for large or complex updates.
+
+## Changelog entry format
+
+Use this format in `documentation/CHANGELOG.md`:
+
+```markdown
+## [YYYY-MM-DD] — Short title
+
+- **Summary:** One line describing the update.
+- **Files changed:** (optional) List key files or areas (e.g. `widget.js`, `apis/`, settings).
+- **Changes:**
+  - Change 1
+  - Change 2
+  - …
+```
+
+## When to update
+
+- **Before finishing:** After implementing a big update, add or update the changelog (and any one-off doc) before considering the task done.
+- **Tip:** If the user says "this was a big update" or "log this," always create or append the entry.
+
+Keep entries brief and scannable; use the optional one-off markdown files in `./documentation/` for longer explanations.
