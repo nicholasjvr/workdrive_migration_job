@@ -6,7 +6,6 @@ from typing import Optional
 from config import Config
 from auth.zoho_auth import create_org_a_auth, create_org_b_auth
 from crm.crm_client import CRMClient
-from workdrive.org_b_client import OrgBWorkDriveClient
 from services.transfer_service import TransferService
 from utils.logger import MigrationLogger
 
@@ -15,6 +14,16 @@ def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(
         description="Zoho WorkDrive Migration Service - Upload CRM attachments to Org B WorkDrive"
+    )
+    parser.add_argument(
+        "--diagnose-crm",
+        action="store_true",
+        help="Print CRM org/user info to verify you're connected to the expected CRM org, then exit",
+    )
+    parser.add_argument(
+        "--diagnose-pending",
+        action="store_true",
+        help="Print debug info for the pending-records search criteria, then exit",
     )
     parser.add_argument(
         "--dry-run",
@@ -34,10 +43,14 @@ def main():
     
     args = parser.parse_args()
     
+    # Load configuration (treat only this as "configuration error")
     try:
-        # Load configuration
         config = Config.from_env()
-        
+    except ValueError as e:
+        print(f"Configuration error: {e}", file=sys.stderr)
+        return 1
+
+    try:
         # Initialize logger
         logger = MigrationLogger()
         logger.log_info("=" * 60)
@@ -54,20 +67,61 @@ def main():
         org_b_auth = create_org_b_auth(config)
         
         # Initialize clients
-        crm_client = CRMClient(org_a_auth, config.crm)
-        org_b_client = OrgBWorkDriveClient(org_b_auth, config.org_b.team_folder_id)
+        org_a_crm = CRMClient(org_a_auth, config.crm)
+        org_b_crm = CRMClient(org_b_auth, config.crm)
+
+        # Diagnostics mode (helps confirm tokens point at the expected org)
+        if args.diagnose_crm:
+            logger.log_info("CRM diagnostics:")
+            logger.log_info(f"- Org A CRM base: {org_a_crm.crm_base}")
+            logger.log_info(f"- Org B CRM base: {org_b_crm.crm_base}")
+            logger.log_info(f"- Module API name: {config.crm.module_api_name}")
+            logger.log_info(f"- Checkbox field API name: {config.crm.checkbox_field_api_name}")
+            logger.log_info(f"- Record name field API name: {config.crm.record_name_field_api_name}")
+
+            # Sample call (usually permitted with modules scopes)
+            try:
+                sample_a = org_a_crm.get_module_sample(per_page=1)
+                logger.log_info(f"- Org A /{config.crm.module_api_name} sample response: {sample_a}")
+            except Exception as e:
+                logger.log_warning(f"- Org A module sample failed: {e}")
+
+            try:
+                sample_b = org_b_crm.get_module_sample(per_page=1)
+                logger.log_info(f"- Org B /{config.crm.module_api_name} sample response: {sample_b}")
+            except Exception as e:
+                logger.log_warning(f"- Org B module sample failed: {e}")
+
+            # These may require additional scopes (settings/users). Best-effort only.
+            try:
+                org_info = org_a_crm.get_org_info()
+                logger.log_info(f"- Org A /org response: {org_info}")
+            except Exception as e:
+                logger.log_warning(f"- Org A /org not accessible with current scopes: {e}")
+
+            try:
+                current_user = org_a_crm.get_current_user()
+                logger.log_info(f"- Org A /users?type=CurrentUser response: {current_user}")
+            except Exception as e:
+                logger.log_warning(f"- Org A CurrentUser not accessible with current scopes: {e}")
+            return 0
+
+        if args.diagnose_pending:
+            dbg = org_a_crm.get_pending_records_debug(limit=10)
+            logger.log_info(f"Pending-records search debug: {dbg}")
+            return 0
         
         # Initialize transfer service
         transfer_service = TransferService(
-            crm_client=crm_client,
-            org_b_client=org_b_client,
+            source_crm=org_a_crm,
+            dest_crm=org_b_crm,
             logger=logger,
             dry_run=args.dry_run,
         )
         
         # Get records to process
         if args.record_id:
-            record = crm_client.get_record_by_id(args.record_id)
+            record = org_a_crm.get_record_by_id(args.record_id)
             if not record:
                 logger.log_error(f"Record {args.record_id} not found")
                 return 1
@@ -83,7 +137,7 @@ def main():
             
             records = [record]
         else:
-            records = crm_client.get_pending_records(limit=args.limit)
+            records = org_a_crm.get_pending_records(limit=args.limit)
         
         if not records:
             logger.log_info("No records to process")
@@ -104,14 +158,15 @@ def main():
         
         successful = sum(1 for r in results if r.success)
         failed = len(results) - successful
-        total_attachments_uploaded = sum(r.attachments_uploaded for r in results)
-        total_attachments_failed = sum(r.attachments_failed for r in results)
+        # Field-sync summary (no attachments in this flow)
+        updated = sum(1 for r in results if getattr(r, "dest_updated", False))
+        not_updated = len(results) - updated
         
         logger.log_info(f"Records processed: {len(results)}")
         logger.log_info(f"Records successful: {successful}")
         logger.log_info(f"Records failed: {failed}")
-        logger.log_info(f"Total attachments uploaded: {total_attachments_uploaded}")
-        logger.log_info(f"Total attachments failed: {total_attachments_failed}")
+        logger.log_info(f"Org B records updated: {updated}")
+        logger.log_info(f"Org B records not updated: {not_updated}")
         logger.log_info("=" * 60)
         
         # Return exit code based on results
@@ -120,9 +175,6 @@ def main():
         
         return 0
     
-    except ValueError as e:
-        print(f"Configuration error: {e}", file=sys.stderr)
-        return 1
     except Exception as e:
         print(f"Fatal error: {e}", file=sys.stderr)
         import traceback

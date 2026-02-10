@@ -18,11 +18,11 @@ class OrgAConfig:
 
 @dataclass
 class OrgBConfig:
-    """Configuration for Organization B (WorkDrive source)."""
+    """Configuration for Organization B (CRM destination)."""
     client_id: str
     client_secret: str
     refresh_token: str
-    team_folder_id: str  # Root folder ID for scoped searches
+    team_folder_id: Optional[str] = None  # legacy (was WorkDrive scoped searches)
 
 
 @dataclass
@@ -33,6 +33,7 @@ class CRMConfig:
     record_name_field_api_name: str  # Field to match against WorkDrive folder names (typically "Name")
     workdrive_url_field_api_name: str  # Field to store WorkDrive folder URL
     workdrive_folder_id_field_api_name: str  # Field to store WorkDrive folder ID
+    record_updated_from_field_api_name: Optional[str] = None  # Optional traceability field on destination
 
 
 @dataclass
@@ -70,12 +71,12 @@ class Config:
         org_b_client_id = os.getenv("ORG_B_CLIENT_ID")
         org_b_client_secret = os.getenv("ORG_B_CLIENT_SECRET")
         org_b_refresh_token = os.getenv("ORG_B_REFRESH_TOKEN")
-        org_b_team_folder_id = os.getenv("ORG_B_TEAM_FOLDER_ID")
+        org_b_team_folder_id = os.getenv("ORG_B_TEAM_FOLDER_ID")  # optional (legacy)
         
-        if not all([org_b_client_id, org_b_client_secret, org_b_refresh_token, org_b_team_folder_id]):
+        if not all([org_b_client_id, org_b_client_secret, org_b_refresh_token]):
             raise ValueError(
                 "Missing required Org B configuration: "
-                "ORG_B_CLIENT_ID, ORG_B_CLIENT_SECRET, ORG_B_REFRESH_TOKEN, ORG_B_TEAM_FOLDER_ID"
+                "ORG_B_CLIENT_ID, ORG_B_CLIENT_SECRET, ORG_B_REFRESH_TOKEN"
             )
         
         # Validate CRM configuration
@@ -84,6 +85,7 @@ class Config:
         crm_record_name = os.getenv("CRM_RECORD_NAME_FIELD_API_NAME", "Name")  # Default to "Name"
         crm_workdrive_url = os.getenv("CRM_WORKDRIVE_URL_FIELD_API_NAME")
         crm_workdrive_folder_id = os.getenv("CRM_WORKDRIVE_FOLDER_ID_FIELD_API_NAME")
+        crm_record_updated_from = os.getenv("CRM_RECORD_UPDATED_FROM_FIELD_API_NAME")
         
         if not all([crm_module, crm_checkbox, crm_workdrive_url, crm_workdrive_folder_id]):
             raise ValueError(
@@ -114,6 +116,7 @@ class Config:
                 record_name_field_api_name=crm_record_name,
                 workdrive_url_field_api_name=crm_workdrive_url,
                 workdrive_folder_id_field_api_name=crm_workdrive_folder_id,
+                record_updated_from_field_api_name=crm_record_updated_from,
             ),
             workdrive=WorkDriveConfig(
                 dest_folder_id=workdrive_dest,

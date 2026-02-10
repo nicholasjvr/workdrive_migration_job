@@ -1,15 +1,12 @@
-# Zoho WorkDrive Migration Service
+# Zoho CRM Field Sync Service
 
-A Python automation service that uploads attachments from Zoho CRM (Organization A) to Zoho WorkDrive (Organization B) based on matching Record Names, stores WorkDrive URLs in CRM records, and updates checkboxes to track completion.
+A Python automation service that copies WorkDrive reference fields (URL + Folder ID) from **Zoho CRM Org A** to **Zoho CRM Org B** by matching records on the configured Record Name field, and updates a checkbox in Org A to track completion.
 
 ## Features
 
-- **Reverse Transfer Flow**: Uploads CRM attachments to Org B WorkDrive (old system)
-- **CRM Integration**: Reads pending records from Zoho CRM, stores WorkDrive URLs, and updates transfer status
-- **Attachment Upload**: Fetches attachments from CRM Attachments Related List and uploads to WorkDrive
-- **Folder Matching**: Matches CRM Record Names to WorkDrive folders in Org B
-- **Duplicate Handling**: Automatically renames duplicate filenames with timestamps
-- **Error Isolation**: Per-attachment error handling ensures one failure doesn't stop the entire transfer
+- **CRM → CRM Sync**: Copies WorkDrive URL + Folder ID fields from Org A to Org B
+- **Record Matching**: Matches by the configured Record Name field (exact match)
+- **Completion Tracking**: Updates a checkbox field in Org A when Org B is updated
 - **Retry Logic**: Automatic retry with exponential backoff for transient errors
 - **Dry-Run Mode**: Test the service without making actual changes
 - **Comprehensive Logging**: Detailed logs for all operations
@@ -18,7 +15,7 @@ A Python automation service that uploads attachments from Zoho CRM (Organization
 
 - Python 3.11+
 - Zoho OAuth Self Client credentials for both organizations
-- Access to Zoho CRM (Org A) and WorkDrive (both orgs)
+- Access to Zoho CRM (Org A + Org B)
 
 ## Installation
 
@@ -46,16 +43,15 @@ Create a `.env` file with the following variables:
 # Zoho Region (com, eu, in, au, jp)
 ZOHO_REGION=com
 
-# Organization A (CRM - Source of attachments)
+# Organization A (CRM - Source of WorkDrive fields)
 ORG_A_CLIENT_ID=your_org_a_client_id
 ORG_A_CLIENT_SECRET=your_org_a_client_secret
 ORG_A_REFRESH_TOKEN=your_org_a_refresh_token
 
-# Organization B (WorkDrive - Destination for attachments)
+# Organization B (CRM - Destination to populate)
 ORG_B_CLIENT_ID=your_org_b_client_id
 ORG_B_CLIENT_SECRET=your_org_b_client_secret
 ORG_B_REFRESH_TOKEN=your_org_b_refresh_token
-ORG_B_TEAM_FOLDER_ID=your_org_b_team_folder_root_id
 
 # CRM Configuration
 CRM_MODULE_API_NAME=Contacts
@@ -63,6 +59,7 @@ CRM_CHECKBOX_FIELD_API_NAME=Transfer_Complete
 CRM_RECORD_NAME_FIELD_API_NAME=Name
 CRM_WORKDRIVE_URL_FIELD_API_NAME=WorkDrive_URL
 CRM_WORKDRIVE_FOLDER_ID_FIELD_API_NAME=WorkDrive_Folder_ID
+CRM_RECORD_UPDATED_FROM_FIELD_API_NAME=Record_Updated_From
 ```
 
 ### OAuth Setup
@@ -71,13 +68,9 @@ You need to create OAuth Self Clients in both Zoho organizations:
 
 **Org A Scopes:**
 - `ZohoCRM.modules.ALL`
-- `ZohoCRM.files.READ` (for accessing attachments)
 
 **Org B Scopes:**
-- `WorkDrive.files.CREATE`
-- `WorkDrive.files.READ`
-- `WorkDrive.files.UPDATE`
-- `WorkDrive.teamfolders.READ`
+- `ZohoCRM.modules.ALL`
 
 Generate refresh tokens for both clients and add them to your `.env` file.
 
@@ -175,7 +168,7 @@ Log entries include:
 
 ```
 project_root/
-├── main.py                 # CLI entrypoint
+├── main.py                # CLI entrypoint
 ├── config.py              # Configuration management
 ├── auth/
 │   └── zoho_auth.py       # OAuth authentication
